@@ -32,6 +32,7 @@ local clamp_pitch = true
 local clamp_yaw_normal = 2.0
 local clamp_yaw_spectate = MINIMUM_RADIANS
 
+local camera_dt = 0.01
 local lerp_time_left = 0.0
 
 mod.is_requesting_freelook = function()
@@ -125,7 +126,8 @@ mod.kb_freelook_held = function(held)
 	end
 end
 
-mod:hook_safe(CLASS.CameraHandler, "_switch_follow_target", function(self, new_unit)
+mod:hook(CLASS.CameraHandler, "_switch_follow_target", function(func, self, new_unit)
+	func(self, new_unit)
 	if self._player then
 		_start_freelook("spectate", auto_on_spectate and new_unit ~= self._player.player_unit)
 	end
@@ -150,23 +152,28 @@ end
 mod:hook(CLASS.InputService, "_get", _input_action_hook)
 mod:hook(CLASS.InputService, "_get_simulate", _input_action_hook)
 
-mod:hook(CLASS.CameraManager, "update", function(func, self, dt, t, viewport_name, yaw, pitch, roll)
+mod:hook(CLASS.CameraHandler, "_post_update", function(func, self, dt, t, player_orientation)
+	camera_dt = dt
+	func(self, dt, t, player_orientation)
+end)
+
+mod:hook(CLASS.CameraManager, "set_node_trees_aim_orientation", function(func, self, viewport_name, yaw, pitch, roll)
 	if mod.is_requesting_freelook() then
-		local yaw_limit = active_reasons["spectate"] and clamp_yaw_spectate or clamp_yaw_normal
-		if yaw_limit > MINIMUM_RADIANS then
-			freelook_aim.y = math.clamp(((freelook_aim.y - yaw - PI) % TAU) - PI, -yaw_limit, yaw_limit) + yaw
-		end
-		if clamp_pitch then
-			freelook_aim.p = math.clamp((freelook_aim.p - CLAMP_OFFSET) % TAU, PITCH_CLAMP_LOWER, PITCH_CLAMP_UPPER) + CLAMP_OFFSET
-		end
+		local yaw_limit = active_reasons.spectate and clamp_yaw_spectate or clamp_yaw_normal
+		freelook_aim.y = yaw_limit > MINIMUM_RADIANS
+			and math.clamp(((freelook_aim.y - yaw - PI) % TAU) - PI, -yaw_limit, yaw_limit) + yaw
+			or freelook_aim.y
+		freelook_aim.p = clamp_pitch
+			and math.clamp((freelook_aim.p - CLAMP_OFFSET) % TAU, PITCH_CLAMP_LOWER, PITCH_CLAMP_UPPER) + CLAMP_OFFSET
+			or freelook_aim.p
 		yaw = freelook_aim.y
 		pitch = freelook_aim.p
 	elseif lerp_time_left and lerp_time_left > 0.0 then
-		freelook_aim.y = freelook_aim.y - (((freelook_aim.y - yaw - PI) % TAU) - PI) * dt / lerp_time_left
-		freelook_aim.p = freelook_aim.p - (((freelook_aim.p - pitch - PI) % TAU) - PI) * dt / lerp_time_left
+		freelook_aim.y = freelook_aim.y - (((freelook_aim.y - yaw - PI) % TAU) - PI) * camera_dt / lerp_time_left
+		freelook_aim.p = freelook_aim.p - (((freelook_aim.p - pitch - PI) % TAU) - PI) * camera_dt / lerp_time_left
 		yaw = freelook_aim.y
 		pitch = freelook_aim.p
-		lerp_time_left = lerp_time_left - dt
+		lerp_time_left = lerp_time_left - camera_dt
 	end
-	func(self, dt, t, viewport_name, yaw, pitch, roll)
+	func(self, viewport_name, yaw, pitch, roll)
 end)
